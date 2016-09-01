@@ -35,28 +35,54 @@ Param(
 		[Parameter(
 		Mandatory=$false
 		)]
-	$Login
+	$Login,
+			[Parameter(
+		Mandatory=$false
+		)]
+	$Log
 )
+Function ActivateDebug(){
+			Add-Content -Path $LogfileActivated -Value "***************************************************************************************************"
+			Add-Content -Path $LogfileActivated -Value "Started processing at [$([DateTime]::Now)]."
+			Add-Content -Path $LogfileActivated -Value "***************************************************************************************************"
+			Add-Content -Path $LogfileActivated -Value ""
+			Write-Host "Debug Enabled writing to logfile: " $LogfileActivated
+	
+}
 
+Function WriteDebug{
+	[CmdletBinding()]
+  
+  Param ([Parameter(Mandatory=$true)][string]$LineValue)
+  
+	Process{
+			Add-Content -Path $LogfileActivated -Value $LineValue
+	}
+}
 
 Function GetAllVMProperties(){
 	#GetAllVM's
 	$AllVMs=Get-AzureRmVM
 	Write-Host (" found " + $AllVMs.Count + ": ") -ForegroundColor Gray -NoNewline
-	
+	WriteDebug (" found " + $AllVMs.Count + ": ")
 	ForEach ($VM in $AllVMs){
 		Write-Host ($VM.name + "," ) -ForegroundColor Gray -NoNewline
+		WriteDebug ($VM.name + "," )
+
 		$VMNames.Add($VM.name) > $null
 		If ($vm.DiagnosticsProfile.BootDiagnostics.Enabled -eq $true){
 			$VMDiagStorageURL.add($vm.DiagnosticsProfile.BootDiagnostics.StorageUri) >$null
+			WriteDebug $VM.name
+			WriteDebug (" BootDiagnostics " + $vm.DiagnosticsProfile.BootDiagnostics.StorageUri)
 		}
 		$OSDisk=$VM.StorageProfile.OsDisk
-		#Write-Host $OSDisk.vhd.uri -ForegroundColor Gray
+		WriteDebug (" OS Disk " + $OSDisk.vhd.uri)
 		$DiskURIArray.Add($OSDisk.vhd.uri) > $null
 	$DataDisks = New-Object System.Collections.ArrayList
 	$DataDisks=$VM.StorageProfile.DataDisks
 		Foreach ($dDisk in $DataDisks){
 			#Write-Host $dDisk.vhd.uri -ForegroundColor Gray
+			WriteDebug (" Data Disk " + $dDisk.vhd.uri)
 			$DiskURIArray.Add($dDisk.vhd.uri) > $null
 		}
 	#NEED TO GET ALL NETWORK ADAPTERS
@@ -64,64 +90,39 @@ Function GetAllVMProperties(){
 		Foreach ($nicID in $NICIDs){
 		$VMNICArray.Add($nicID) > $null
 			#Write-Host $nicID -ForegroundColor Gray
+			WriteDebug (" NIC " + $nicID)
 		}
 	}
 }
 
-Function DetermineAzureCMD {
-	$versionArray=(Get-Module -ListAvailable | Where-Object{ $_.Name -eq 'Azure' })
-	If (-not $versionArray) {
-		Write-Host "No Azure CMD'lets found, please install: https://github.com/Azure/azure-powershell/releases"
-		return $false
-	}
-	ElseIf ($versionArray.count -eq 1){
-			#Write-Host "Azure CMD'lets version found:" 
-			$Version=([string]$versionArray.Version.Major + "." + [string]$versionArray.Version.Minor + "." + [string]$versionArray.Version.build)
-			Write-Host $version
-			if ($versionArray.Version.Major -ge 1 -and $versionArray.Version.Minor -eq 5){
-					#Write-Host "Version validated"
-					return $true
-			}
-	
-			Else {
-				#Write-Host "not validated"
-			return $false
-			}
-	}
 
-	Else {
-			Write-Host "Multiple modules found"
-			return $false
-	}
 
-}
-	
-	Function PrepareDeleteStorageAccountContents(){
+Function PrepareDeleteStorageAccountContents(){
 	$StorageAccounts=Get-AzureRmStorageAccount
 	Write-Host (" found " + $StorageAccounts.Count + " accounts") -ForegroundColor Gray 
+	WriteDebug (" found " + $StorageAccounts.Count + " accounts")
 	#Validate StorageAccount URL in VMDriveArray
 	ForEach ($SA in $StorageAccounts){
 				#Need to skip the built in security data logging part..  
 				If($SA.ResourceGroupName -eq 'securitydata'){continue}
-				Write-Host ("Storage Account " + $SA.StorageAccountName) -ForegroundColor Cyan	
+				Write-Host ("Storage Account " + $SA.StorageAccountName) -ForegroundColor Cyan
+				WriteDebug 	(" Storage Account " + $SA.StorageAccountName)
 				$DeleteStorageAccount=$True  #SET THE DELETE FLAG TO YES (WILL BE OVERRIDDEN IF BLOCKED)
 		#RESET PER STORAGE ACCOUNT
 				$FileDeleteCounter=0
 				$DeleteContainers=$null
 				$DeleteFiles=$null
 				$DeleteContainerValidationCounter=0
-				
-
 				$DeleteFiles = New-Object System.Collections.ArrayList
-				
 				$DeleteContainers = New-Object System.Collections.ArrayList
-
 
 				If ($DiskURIArray -match $SA.StorageAccountName -or  $VMDiagStorageURL -match $SA.StorageAccountName){
 					#IF THE STORAGE ACCOUNTNAME IS BEING USED IN VM DISKS OR DIAGNOSTICS!
 					$count=$SA.StorageAccountName.Length
 					$msg=" is being used by VM's. Continuing with file scanning but storage account deletion is DISABLED"
-
+						WriteDebug "Storage Account Blocked from deletion, existing VM's found"
+						WriteDebug (" option1: " + $VMDiagStorageURL + " " + $SA.StorageAccountName)
+						WriteDebug (" option2: " + $DiskURIArray + " " + $SA.StorageAccountName)
 					Write-Host ("!" * ($count + $msg.Length)) -ForegroundColor Magenta
 					Write-Host ($SA.StorageAccountName + $msg) -ForegroundColor Yellow
 					Write-Host ("!" * ($count + $msg.Length)) -ForegroundColor Magenta
@@ -130,40 +131,49 @@ Function DetermineAzureCMD {
 				}
 				Else {
 					Write-Host ("Storage Account " + $SA.StorageAccountName + " not being used by VM's") -ForegroundColor Green
+					WriteDebug ("Nothing found on " + $SA.StorageAccountName) 
+					WriteDebug "DeleteStorageAccount Set to TRUE"
 					$DeleteStorageAccount=$True
 				}
 				
 			
 				$Key=(Get-AzureRmStorageAccountKey -ResourceGroupName $SA.ResourceGroupName -Name $SA.StorageAccountName )
 				$key1=$ket.key1
+				WriteDebug (" Storage Account Key default: " + $key1)
 				if ($Key1 -eq $null) {
 						#Different version of Powershell CMD'lets
-					
 					$key1=$key.value[0]		
+					WriteDebug (" Storage Account Key 2nd attempt: " + $key1)
 				}
 
 				$SACtx=New-AzureStorageContext -StorageAccountName $SA.StorageAccountName -StorageAccountKey $Key1
 				Write-Host (" Storage Context is " + $SACtx.StorageAccountName) -ForegroundColor Gray
+				WriteDebug ("Storage Context set to: " + $SACtx.StorageAccountName)
 
 		#STANDARD STORAGE
-		If ($SA.AccountType -match 'Standard' ){			
+		If ($SA.AccountType -match 'Standard' ){	
+			WriteDebug (" Standard Storage Account found, checking tables and queues")		
 					#THIS IS FOR TABLES AND QUEUES IF STORAGE IS STANDARD
 					$Tables=Get-AzureStorageTable -Context $SACtx
 					$queues=Get-AzureStorageQueue -Context $SACtx
 
 					If (!($Tables)){
 						Write-Host " Storage Tables not found" -ForegroundColor Green
+						WriteDebug (" SA deletion is " + $DeleteStorageAccount)
 					}
 					ElseIf ($Tables){
 						Write-Host " Storage Tables Found!" -ForegroundColor Yellow
 						$DeleteStorageAccount=$False
+						WriteDebug " Tables found, SA deletion set to FALSE"
 					}
 					If (!($queues)){
 						Write-Host " Storage Queues not found" -ForegroundColor Green
+						WriteDebug (" SA deletion is " + $DeleteStorageAccount)
 					}
 					Else {
 						Write-Host " Storage Queues Found" -ForegroundColor Yellow
 						$DeleteStorageAccount=$False
+						WriteDebug " Queues found, SA deletion set to FALSE"
 					}
 
 					Write-Host ""
@@ -173,6 +183,7 @@ Function DetermineAzureCMD {
 			#THIS IS FOR BLOBS
 #GOING DOWN TO CONTAINER LEVEL
 					$Containers=Get-AzureStorageContainer -Context $SACtx
+					WriteDebug " scannnig containers"
 					foreach ($contain in $Containers) {
 						#RESET THE COUNTERS PER CONTAINER
 						$DeleteFilesCheck=$null
@@ -183,12 +194,15 @@ Function DetermineAzureCMD {
 						$DeleteContainer=$False  #Security
 						
 						Write-Host (" Current container: "+ $contain.name) -ForegroundColor Green
+						WriteDebug (" Current container: "+ $contain.name)
 						
 						#NEED TO FILTER OUT THE STILL BEING USED DIAGNOSTICS CONTAINERS
 						$TempName=$contain.Name.split("-")[0]
 						$TempName2=$contain.Name.split("-")[1]
 						If ($TempName -eq 'bootdiagnostics' -and $VMNames -match $TempName2.ToUpper()){
 						Write-Host "  container in use for VM diagnostics" -ForegroundColor Yellow
+						WriteDebug "  container in use for VM diagnostics"
+						WriteDebug "  BootDiagnostics found, SA deletion set to FALSE"
 						$DeleteStorageAccount=$False
 						continue
 						}
@@ -198,7 +212,7 @@ Function DetermineAzureCMD {
 						If($filesInContainer -eq $null){
 								$DeleteContainerValidationCounter++
 								Write-Host " No files found" -ForegroundColor Yellow
-						
+								
 									#DO YOU WISH TO DELETE THE Container?
 			
 								$title = ""
@@ -219,11 +233,14 @@ Function DetermineAzureCMD {
 									0 {					
 									Write-host ($contain.Name + " marked for deletion") -ForegroundColor Yellow
 										$DeleteContainers.Add($contain.Name) >$null		
+										WriteDebug "  no files in container, marked for deletion"
 									} 
 
 									1 {
 									Write-host ($contain.Name +  " will remain") -ForegroundColor Green
 									$DeleteStorageAccount=$False
+									WriteDebug "  no files in container, SKIPPED for deletion"
+									WriteDebug "  SA deletion set to FALSE"
 									}
 								}			
 						continue
@@ -232,22 +249,31 @@ Function DetermineAzureCMD {
 #GOING DOWN TO FILE LEVEL
 						Foreach ($file in $filesInContainer){
 							$SafeGuard=$FileDeleteCounter
-
+#NEED TO VALIDATE ON HTTP/HTTPS
 							$BuiltVMFileName=("https://" + $SA.StorageAccountName + ".blob.core.windows.net/" + $contain.name + "/" + $file.name)
+							$BuiltVMFileName2=("http://" + $SA.StorageAccountName + ".blob.core.windows.net/" + $contain.name + "/" + $file.name)
+							WriteDebug " scannig VM files in container"
+							WriteDebug ("$BuiltVMFileName")
 							#VALIDATE IF NOT IN USE BY VM
-							If ($DiskURIArray -contains $BuiltVMFileName) {
+							If ($DiskURIArray -contains $BuiltVMFileName -or $DiskURIArray -contains $BuiltVMFileName2) {
 								Write-Host (" " + $file.name + " matches VM HDD file, and therefore must remain") -ForegroundColor Gray
+								WriteDebug (" validated against DiskURIArray")
 							continue
+
+
 
 							}
 							ElseIf ($VMNames -match $file.name.split(".")[0] -and $file.name.Endswith(".status") -eq $true){
 								Write-host (" Existing VM status file for: " + $file.name.split(".")[0]) -ForegroundColor Gray
+								WriteDebug " statusfile check" 
+								WriteDebug (" option 1: " + $file.name.split(".")[0] + " in VMNames")
+								WriteDebug " and ends with .status"
 							continue
 
 							}
 
 							Else {
-					
+								WriteDebug ( "file was not found in arrays:" + $file.name)
 							#DO YOU WISH TO DELETE THE FILE?
 			
 								$title = ""
@@ -267,12 +293,14 @@ Function DetermineAzureCMD {
 								{
 									0 {					
 									Write-host ($file.name + " marked for deletion") -ForegroundColor Yellow
-										$DeleteFilesCheck.Add(" -blob " + $file.name + " -container " + $contain.Name) > $null						
+										$DeleteFilesCheck.Add(" -blob " + $file.name + " -container " + $contain.Name) > $null
+										WriteDebug (" file: " + $file.name + " added to deletion queue")					
 										$FileDeleteCounter++
 									} 
 
 									1 {
 									Write-host ($file.name +  " will remain") -ForegroundColor Green
+									WriteDebug (" keeping file: " + $file.name)
 									$DeleteStorageAccount=$False
 									}
 								}
@@ -285,16 +313,21 @@ Function DetermineAzureCMD {
 						#Count the number of files marked for deletion versus the number of files in the container, then clear for container delete
 						If ($FileDeleteCounter -eq $filesInContainer.count) 
 						{
+						WriteDebug (" FileDeleteCounter equals filesInContainer")
+						WriteDebug (" 1: " + $FileDeleteCounter)
+						WriteDebug (" 2: " + $filesInContainer.count)
 						Write-Host " Container marked for deletion" -ForegroundColor Red
 							$FileDeleteCounter=$SafeGuard #NO INDIVIDUAL FILE DELETES REQUIRED reset to container start
 							$DeleteContainerValidationCounter++
-							$DeleteContainers.Add($contain.Name) >$null			
+							$DeleteContainers.Add($contain.Name) >$null	
+							WriteDebug (" container: " + $contain.Name + " added to deletion queue")		
 							$DeleteFilesCheck.Clear()			
+							WriteDebug (" individual file deletion queue emptied")
 						}
 						ElseIf($FileDeleteCounter -lt $filesInContainer.count){
 							#The number of the to be deleted files is less than the amount of files in the container, merge the Arrays into 1 big one
 							Write-Host " container not empty, retaining..."  -ForegroundColor Green
-			
+							WriteDebug " container stays, individual file removal process..."
 							$DeleteFiles=$DeleteFiles + $DeleteFilesCheck
 						}
 				
@@ -317,6 +350,10 @@ Function DetermineAzureCMD {
 			#STORAGE ACCOUNT DELETION
 				{
 					Write-Host ("DELETING STORAGE ACCOUNT " + $SA.StorageAccountName) -ForegroundColor Yellow
+					WriteDebug (" Storage Account Deletion due to:")
+					WriteDebug (" Container validation" + $DeleteContainerValidationCounter)
+					WriteDebug (" containers to be deleted: " + $Containers.Count)
+					WriteDebug (" DeleteStorageAccount is TRUE")
 					DeleteStorageAccount $SA $SACtx
 
 				}
@@ -325,6 +362,11 @@ Function DetermineAzureCMD {
 			#STORAGEACCOUNT DELETION IS BLOCKED BY QUEUES/TABLES, BUT PROCESSED CONTAINERS CAN BE REMOVED
 				{
 					Write-Host ("DELETING CONTAINERS ") -ForegroundColor Yellow
+					WriteDebug (" Container Deletion due to:")
+					WriteDebug (" Container validation" + $DeleteContainerValidationCounter)
+					WriteDebug (" containers to be deleted: " + $Containers.Count)
+					WriteDebug (" DeleteStorageAccount is FALSE")
+ 
 					DeleteContainer $SA.StorageAccountName $DeleteContainers $SACtx
 				}
 
@@ -332,6 +374,11 @@ Function DetermineAzureCMD {
 			#INDIVIDUAL CONTAINERS CAN BE REMOVED
 				{
 					Write-Host ("DELETING CONTAINERS ") -ForegroundColor Yellow
+					WriteDebug (" Container Deletion due to:")
+					WriteDebug (" Container validation" + $DeleteContainerValidationCounter)
+					WriteDebug (" containers to be deleted: " + $Containers.Count)
+					WriteDebug (" number mismatch, therefore processing containers only")
+
 					DeleteContainer $SA.StorageAccountName $DeleteContainers $SACtx
 				}
 		
@@ -339,17 +386,22 @@ Function DetermineAzureCMD {
 			#ONLY FILES CAN BE REMOVED
 				{
 					Write-Host ("DELETING Individual Files") -ForegroundColor Yellow
+					WriteDebug (" File Deletion due to:")
+					WriteDebug (" Delete Container is FALSE")
+					
 					DeleteFiles $SA.StorageAccountName $DeleteFiles $SACtx
 
 				}
 			Else 
 				{
 					Write-Host ("Nothing to be deleted") -ForegroundColor Green
+					WriteDebug " Nothing to be processed, no deletes"
 					Write-Host ""
 
 				}
 		
 	}	#Next STORAGE ACCOUNT
+	
 }
 
 
@@ -485,19 +537,25 @@ Function NetworkComponents{
 
 	#GET ALL UNUSED PIP's
 	Write-Host " Public IP Addresses" -ForegroundColor Cyan	
+	WriteDebug "Public IP addresses"
 		ForEach ($exIP in $PublicIPAddresses){
 			if ($exIP.Ipconfiguration.id.count -eq 0){
 				Write-Host (" " + $exIP.name + " is not in use") -ForegroundColor Yellow
+				WriteDebug (" " + $exIP.name + " is not in use")
 				DeletePublicIPAddress $exIP
 			}
 			Else {
 				#FILTER GATEWAYS FROM THIS LIST SO WE CAN ALREADY ADD THEM TO AN ARRAY
 				#get the $exIP.Ipconfiguration.id and split it on /.. [4] should be resource group, [7] is virtualNetworkGateways [8] is GW name!
 					$IPConfigID = $exIP.Ipconfiguration.id
+					WriteDebug " IP is in use"
+					WriteDebug $IPConfigID
 					$IPConfigIDsplit=$IPConfigID.Split("/")
 				if (($exIP.Ipconfiguration.id).split("/")[7] -eq 'virtualNetworkGateways') {
+					WriteDebug "validating GW IPs later-on"
 					#WE FOUND A GATEWAY IP	
 					$GatewayArray.add(($exIP.Ipconfiguration.id).split("/")[8] + "/" + $exIP.Ipconfiguration.id.split("/")[4])
+					WriteDebug (" ADDED TO ARRAY: " + ($exIP.Ipconfiguration.id).split("/")[8] + "/" + $exIP.Ipconfiguration.id.split("/")[4])
 					Write-Host (" found Public IP address for Azure Gateway in VNet " + ($exIP.Ipconfiguration.id).split("/")[8]) -ForegroundColor Gray
 				}
 			}
@@ -508,62 +566,76 @@ Function NetworkComponents{
 	$ALLNics=Get-AzureRmNetworkInterface
 	ForEach ($Nic in $ALLNics){
 		If ($VMNICArray -notcontains $Nic.id) {
-			#Write-Host $Nic.IpConfigurations.id
+			WriteDebug $Nic.IpConfigurations.id
 			#Write-Host $VMNICArray
 					
 			If ($NIC.IpConfigurations.PublicIPaddress.id){
-				#Write-Host ("PIP: " + $NIC.IpConfigurations.PublicIPaddress.id)
+				WriteDebug ("PIP: " + $NIC.IpConfigurations.PublicIPaddress.id)
 				$PublicIP=Get-AzureRmPublicIpAddress -Name $NIC.IpConfigurations.PublicIPaddress.id.split("/")[$NIC.IpConfigurations.PublicIPaddress.id.split("/").count -1] -ResourceGroupName $NIC.IpConfigurations.PublicIPaddress.id.split("/")[4]
-				#Write-Host ("DELETE ATTACHED PIP: " + $PublicIP.name)
+				WriteDebug ("DELETE ATTACHED PIP: " + $PublicIP.name)
 				Write-Host (" " + $PublicIP.name + " used by orphaned NIC " + $Nic.Name) -ForegroundColor Yellow
 				DeletePublicIPAddress $PublicIP
 			}
 			Write-Host ("  " + $Nic.Name + " may be deleted (not in use)") -ForegroundColor Yellow
+			WriteDebug ("  " + $Nic.Name + " may be deleted (not in use)")
 			DeleteNIC $Nic
 			$NSGCheck.Add($NIC.id) >null
 		}
 		Else {
 			Write-Host ("  " + $Nic.Name + " is in use") -ForegroundColor Gray
+			WriteDebug ("  " + $Nic.Name + " is in use")
 			#FOR ALL THE NIC'S THAT ARE IN USE, ADD THE SUBNET TO AN ARRAY (WILL BE ACTIVE SUBNETS ARRAY)
 			$subnetIDArray.Add($Nic.IpConfigurations.subnet.id) >$null
 		}
 	}
 	Write-Host ""
 	Write-Host " Network Security Groups" -ForegroundColor Cyan
-	$AllNSGs=Get-AzureRmNetworkSecurityGroup
+	WriteDebug " Network Security Groups"
+		$AllNSGs=Get-AzureRmNetworkSecurityGroup
 	ForEach ($NSG in $AllNSGs) {
 		If ($NSG.NetworkInterfaces.count -eq 0 -and $NSG.Subnets.count -eq 0){
 			Write-Host ("  NSG " + $NSG.Name + " may be deleted (not in use)") -ForegroundColor Yellow
+			WriteDebug ("  NSG " + $NSG.Name + " may be deleted (not in use)")
+			WriteDebug ("NSGInterfaceCount eq 0")
+			WriteDebug ("NSGSubnetCount eq 0")
 			DeleteNSG $NSG
 
 		}
 		ElseIf ($NSG.NetworkInterfaces.count -eq 1 -and $NSGCheck -contains $NSG.NetworkInterfaces.id){
 			Write-Host ("  NSG " + $NSG.Name + " may be deleted (was in use)") -ForegroundColor Yellow
+			WriteDebug ("  NSG " + $NSG.Name + " may be deleted (was in use)")
+			WriteDebug ("NSGInterfaceCount eq 1")
+			WriteDebug ("NSGCheck contains " + $NSG.NetworkInterfaces.id)
 			DeleteNSG $NSG
 		}
 		Else {
 			Write-Host ("  NSG " + $NSG.Name + " is in use") -ForegroundColor Gray
+			WriteDebug (" " + $NSG.Name + " is in use")
 		}
 	}	
 }
 
 Function AnalyzeVNets {
 	Write-Host " Virtual Networks" -ForegroundColor Cyan
+	WriteDebug " Virtual Networks"
 	$VNETs=Get-AzureRMVirtualNetwork
 	Write-Host ("  Found: " + $VNETs.count + " Virtual Networks") -ForegroundColor Gray
-
+	WritedEBUG ("  Found: " + $VNETs.count + " Virtual Networks")
 	#GET ALL GATEWAYS PER RESOURCE GROUP
 	Write-Host " Virtual Networks" -ForegroundColor Cyan
 	$ResourceGroups=Get-AzureRMResourceGroup
 	Foreach ($ResGroup in $ResourceGroups) {
+		WriteDebug (" Resource Group: " + $ResGroup.ResourceGroupName)
 		$NetGateways=Get-AzureRmVirtualNetworkGateway -ResourceGroupName $ResGroup.ResourceGroupName
 		foreach ($NetGateway in $NetGateways){
+			WriteDebug (" gateway:" + $NetGateway.name)
 			$subnetID=($NetGateway.IpConfigurationsText | convertFrom-Json).subnet.id
 			$subnetIDsplit=$subnetID.split("/")
 			$comparesubnetIDtoIP=($NetGateway.name + "/" + $subnetIDsplit[4])
 			If ($GatewayArray -contains  $comparesubnetIDtoIP) {
 				Write-host (" Public IP address assigned to subnet (Azure Gateway) " + $NetGateway.name)  -ForegroundColor Gray
 				$GatewaySubnetArray.add($subnetID) >null
+				WriteDebug (" found: " + $comparesubnetIDtoIP + " in GatewayArray")
 			}
 		}
 	}
@@ -601,6 +673,13 @@ Function AnalyzeVNets {
 }
 
 
+If ($Log){
+			$date=(Get-Date).ToString("d-M-y-h.m.s")
+			$logname = ("AzureCleanLog-" + $date + ".log")
+			New-Item -Path $pwd.path -Value $LogName -ItemType File
+			$LogfileActivated=$pwd.path + "\" + $LogName
+	ActivateDebug} #Activating DEBUG MODE
+
 Try {
 	Import-Module Azure.Storage
 	}
@@ -608,20 +687,9 @@ Try {
 	Write-Host 'Modules NOT LOADED - EXITING'
 	Exit
 	}
-	If (-not (DetermineAzureCMD)){
-		Write-Host "There is an error in determining the correct Azure Powershell CMD'lets" -ForegroundColor Yellow
-		Write-Host "You may continue, but there is no guarantee (as-if there was any) that the script will function" -ForegroundColor Yellow
-		Write-Host "Please download version 1.5.1 of the Powershell CMD'lets at" -ForegroundColor Yellow
-		Write-Host "https://github.com/Azure/azure-powershell/releases/download/v1.5.1-June2016/azure-powershell.1.5.1.msi" -ForegroundColor Yellow
-		$x = Read-Host 'Press any key to exit or press C to continue' 
-		If ($x.toUpper() -ne "C") {
-			Write-Host "SAFE QUIT" -ForegroundColor Green
-			exit
-		}
-	}
 
 #LOGIN TO TENANT
-clear
+#clear
 Write-Host ""
 Write-Host ""
 Write-Host ("-" * 90)
@@ -646,7 +714,7 @@ Write-Host "Run the script with -ProductionRun `$$True to actually delete the re
 Write-Host ("-" * 90)
 
 
-If (-not $Login) {Add-AzureRmAccount}
+If (-not ($Login)) {Add-AzureRmAccount}
 
 
 $selectedSubscriptions = New-Object System.Collections.ArrayList
