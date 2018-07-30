@@ -56,7 +56,9 @@ Function WriteDebug{
   Param ([Parameter(Mandatory=$true)][string]$LineValue)
   
 	Process{
-			Add-Content -Path $LogfileActivated -Value $LineValue
+			If ($Log) {
+				Add-Content -Path $LogfileActivated -Value $LineValue
+			}
 	}
 }
 
